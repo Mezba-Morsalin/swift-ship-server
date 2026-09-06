@@ -2,84 +2,82 @@ const dns = require("node:dns");
 
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
+const {
+  MongoClient,
+  ServerApiVersion,
+  ObjectId,
+} = require("mongodb");
+
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
-const { MongoClient } = require("mongodb");
 
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 5000;
-
-const client = new MongoClient(process.env.MONGO_URI);
 
 app.use(cors());
 app.use(express.json());
 
-// ==========================================
-// MONGODB CONNECTION
-// ==========================================
+const uri = process.env.MONGO_URI;
+const PORT = process.env.PORT || 5000;
 
-async function connectToMongoDB() {
-  try {
-    await client.connect();
-
-    console.log("You successfully connected to MongoDB!");
-  } catch (error) {
-    console.error("MongoDB connection failed:", error);
-  }
-}
-
-// ==========================================
-// DISCONNECT MONGODB
-// ==========================================
-
-async function disconnectFromMongoDB() {
-  try {
-    await client.close();
-
-    console.log("MongoDB connection closed");
-  } catch (error) {
-    console.error("MongoDB disconnect error:", error);
-  }
-}
-
-// ==========================================
-// ROOT ROUTE
-// ==========================================
-
-app.get("/", (req, res) => {
-  res.send("Swift Server Running Successfully");
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
 });
 
 // ==========================================
-// CREATE SHIPMENT
+// RUN SERVER
 // ==========================================
 
-app.post("/api/shipments", async (req, res) => {
+async function run() {
   try {
+    await client.connect();
+
+    const db = client.db(process.env.AUTH_DB_COLLECTION);
+
+    const shipmentCollection = db.collection("shipments");
+    const hubsCollection = db.collection("hubs");
+
+    console.log("MongoDB Connected Successfully");
+
+    app.get("/", (req, res) => {
+      res.send("Swift Server Running Successfully");
+    });
+
+    app.post("/api/shipments", async (req, res) => {
+  try {
+    const { recipientName, recipientPhone, destination, category, address, instructions, codAmount, weight, status, deliveryCharge,} = req.body;
     const shipmentData = {
-      ...req.body,
-      status: req.body.status || "PENDING",
+      recipientName,
+      recipientPhone,
+      destination,
+      category,
+      address,
+      instructions: instructions || "",
+      codAmount: Number(codAmount) || 0,
+      weight: Number(weight) || 0,
+      deliveryCharge: Number(deliveryCharge) || 0,
+      status: status || "pending",
       createdAt: new Date(),
     };
 
-    const result = await client
-      .db(process.env.AUTH_DB_COLLECTION)
-      .collection("shipments")
-      .insertOne(shipmentData);
+    const result = await shipmentCollection.insertOne(shipmentData);
 
     res.status(201).json({
       success: true,
       message: "Shipment created successfully",
-      data: {
+      shipment: {
         ...shipmentData,
         _id: result.insertedId,
       },
     });
   } catch (error) {
-    console.error("Create shipment error:", error);
+    console.error("Failed to create shipment:", error);
 
     res.status(500).json({
       success: false,
@@ -87,60 +85,53 @@ app.post("/api/shipments", async (req, res) => {
     });
   }
 });
+    app.get("/api/shipments", async (req, res) => {
+      try {
+        const { status } = req.query;
 
-// ==========================================
-// GET ALL SHIPMENTS
-// ==========================================
+        const query = status ? { status } : {};
 
-app.get("/api/shipments", async (req, res) => {
-  try {
-    const shipments = await client
-      .db(process.env.AUTH_DB_COLLECTION)
-      .collection("shipments")
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
+        const result = await shipmentCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .toArray();
 
-    res.status(200).json({
-      success: true,
-      data: shipments,
+        res.status(200).json({
+          success: true,
+          data: result,
+        });
+      } catch (error) {
+        console.error("Failed to fetch shipments:", error);
+
+        res.status(500).json({
+          success: false,
+          message: "Failed to fetch shipments",
+        });
+      }
     });
+
+    app.get("/api/hubs", async (req, res) => {
+  try {
+    const hubs = await hubsCollection.find().toArray();
+
+    res.status(200).json(hubs);
   } catch (error) {
-    console.error("Failed to fetch shipments:", error);
+    console.error("Failed to fetch hubs:", error);
 
     res.status(500).json({
       success: false,
-      message: "Failed to fetch shipments",
+      message: "Failed to fetch hubs",
     });
   }
 });
 
-// ==========================================
-// SERVER
-// ==========================================
+  } catch (error) {
+    console.error("MongoDB connection failed:", error);
+  }
+}
 
-app.listen(port, () => {
-  console.log(`Swift Server running on port ${port}`);
-});
+run();
 
-// ==========================================
-// START MONGODB CONNECTION
-// ==========================================
-
-connectToMongoDB();
-
-// ==========================================
-// GRACEFUL SHUTDOWN
-// ==========================================
-
-process.on("SIGINT", async () => {
-  await disconnectFromMongoDB();
-
-  process.exit(0);
-});
-
-process.on("SIGTERM", async () => {
-  await disconnectFromMongoDB();
-
-  process.exit(0);
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
