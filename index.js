@@ -52,21 +52,44 @@ async function run() {
     app.post("/api/shipments", async (req, res) => {
   try {
     const { recipientName, recipientPhone, destination, category, address, instructions, codAmount, weight, status, deliveryCharge,} = req.body;
-    const shipmentData = {
-      recipientName,
-      recipientPhone,
-      destination,
-      category,
-      address,
-      instructions: instructions || "",
-      codAmount: Number(codAmount) || 0,
-      weight: Number(weight) || 0,
-      deliveryCharge: Number(deliveryCharge) || 0,
-      status: status || "pending",
-      createdAt: new Date(),
+
+    // Find hub based on destination
+    const hub = await hubsCollection.findOne({
+      coverageZones: destination,
+    });
+
+    if (!hub) {
+      return res.status(400).json({
+        success: false,
+        message: "No hub found for this destination",
+      });
+    }
+
+    const shipmentStatus = status || "pending";
+
+    const shipmentData = { recipientName, recipientPhone, destination, category, address, instructions: instructions || "", codAmount: Number(codAmount) || 0, weight: Number(weight) || 0, deliveryCharge: Number(deliveryCharge) || 0, status: shipmentStatus, hubId: hub._id, hubCode: hub.hubCode, hubName: hub.hubName, createdAt: new Date(),
     };
 
+    // Create shipment
     const result = await shipmentCollection.insertOne(shipmentData);
+
+    // Update hub shipment stats
+    await hubsCollection.updateOne(
+      { _id: hub._id },
+      {
+        $inc: {
+          "shipmentStats.total": 1,
+          "shipmentStats.pending": shipmentStatus === "pending" ? 1 : 0,
+          "shipmentStats.atHub": shipmentStatus === "atHub" ? 1 : 0,
+          "shipmentStats.readyRider":
+            shipmentStatus === "readyRider" ? 1 : 0,
+          "shipmentStats.outForDelivery":
+            shipmentStatus === "outForDelivery" ? 1 : 0,
+          "shipmentStats.delivered":
+            shipmentStatus === "delivered" ? 1 : 0,
+        },
+      }
+    );
 
     res.status(201).json({
       success: true,
