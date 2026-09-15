@@ -148,6 +148,32 @@ async function run() {
   }
 });
 
+app.get("/api/hubs/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const hub = await hubsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!hub) {
+      return res.status(404).json({
+        success: false,
+        message: "Hub not found",
+      });
+    }
+
+    res.status(200).json(hub);
+  } catch (error) {
+    console.error("Failed to fetch hub:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch hub",
+    });
+  }
+});
+
   } catch (error) {
     console.error("MongoDB connection failed:", error);
   }
