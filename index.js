@@ -174,6 +174,106 @@ app.get("/api/hubs/:id", async (req, res) => {
   }
 });
 
+app.post("/api/hubs", async (req, res) => {
+  try {
+    const { hubCode, hubName, type, division, district, area, address, manager, maxStorage, operationalStatus, coverageZones,} = req.body;
+
+    // Required field validation
+    if (
+      !hubCode ||
+      !hubName ||
+      !type ||
+      !division ||
+      !district ||
+      !area ||
+      !address ||
+      !manager?.name ||
+      !manager?.designation ||
+      !manager?.phone ||
+      !manager?.email ||
+      maxStorage === undefined ||
+      !operationalStatus ||
+      !Array.isArray(coverageZones)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide all required hub information.",
+      });
+    }
+
+    // Check duplicate hub code
+    const existingHub = await hubsCollection.findOne({
+      hubCode: hubCode.trim().toUpperCase(),
+    });
+
+    if (existingHub) {
+      return res.status(409).json({
+        success: false,
+        message: "A hub with this hub code already exists.",
+      });
+    }
+
+    const hubData = {
+      hubCode: hubCode.trim().toUpperCase(),
+      hubName: hubName.trim(),
+      type: type.trim(),
+      division: division.trim(),
+      district: district.trim(),
+      area: area.trim(),
+      address: address.trim(),
+
+      manager: {
+        name: manager.name.trim(),
+        designation: manager.designation.trim(),
+        phone: manager.phone.trim(),
+        email: manager.email.trim().toLowerCase(),
+      },
+
+      maxStorage: Number(maxStorage),
+
+      operationalStatus: operationalStatus.trim(),
+
+      coverageZones: coverageZones
+        .map((zone) => zone.trim())
+        .filter(Boolean),
+
+      assignedRiders: [],
+
+      shipmentStats: {
+        total: 0,
+        pending: 0,
+        atHub: 0,
+        readyRider: 0,
+        outForDelivery: 0,
+        delivered: 0,
+      },
+
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await hubsCollection.insertOne(hubData);
+
+    res.status(201).json({
+      success: true,
+      message: "Hub created successfully.",
+      insertedId: result.insertedId,
+      hub: {
+        ...hubData,
+        _id: result.insertedId,
+      },
+    });
+  } catch (error) {
+    console.error("Create hub error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create hub.",
+      error: error.message,
+    });
+  }
+});
+
   } catch (error) {
     console.error("MongoDB connection failed:", error);
   }
