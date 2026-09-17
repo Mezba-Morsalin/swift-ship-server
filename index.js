@@ -42,6 +42,7 @@ async function run() {
 
     const shipmentCollection = db.collection("shipments");
     const hubsCollection = db.collection("hubs");
+    const ridersCollection = db.collection("riders");
 
     console.log("MongoDB Connected Successfully");
 
@@ -270,6 +271,203 @@ app.post("/api/hubs", async (req, res) => {
       success: false,
       message: "Failed to create hub.",
       error: error.message,
+    });
+  }
+});
+
+// ==========================================
+// CREATE RIDER
+// ==========================================
+app.post("/api/riders", async (req, res) => {
+  try {
+    const { name, email, phone, nid, division, district, area, address, hubCode, riderType, vehicleType, joiningDate, image,} = req.body;
+
+    // ==========================================
+    // Required Field Validation
+    // ==========================================
+    if (
+      !name ||
+      !email ||
+      !phone ||
+      !nid ||
+      !division ||
+      !district ||
+      !area ||
+      !address ||
+      !hubCode ||
+      !riderType ||
+      !vehicleType ||
+      !joiningDate
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide all required rider information.",
+      });
+    }
+
+    // ==========================================
+    // Check Duplicate Email
+    // ==========================================
+    const existingEmail = await ridersCollection.findOne({
+      email: email.trim().toLowerCase(),
+    });
+
+    if (existingEmail) {
+      return res.status(409).json({
+        success: false,
+        message: "A rider with this email already exists.",
+      });
+    }
+
+    // ==========================================
+    // Check Duplicate Phone
+    // ==========================================
+    const existingPhone = await ridersCollection.findOne({
+      phone: phone.trim(),
+    });
+
+    if (existingPhone) {
+      return res.status(409).json({
+        success: false,
+        message: "A rider with this phone number already exists.",
+      });
+    }
+
+    // ==========================================
+    // Find Hub By Hub Code
+    // ==========================================
+    const hub = await hubsCollection.findOne({
+      hubCode: hubCode.trim().toUpperCase(),
+    });
+
+    if (!hub) {
+      return res.status(404).json({
+        success: false,
+        message: "Selected hub not found.",
+      });
+    }
+
+    // ==========================================
+    // Check Hub Status
+    // ==========================================
+    if (hub.operationalStatus !== "active") {
+      return res.status(400).json({
+        success: false,
+        message: "Selected hub is not active.",
+      });
+    }
+
+    // ==========================================
+    // Rider Data
+    // ==========================================
+    const riderData = {
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      nid: nid.trim(),
+
+      division: division.trim(),
+      district: district.trim(),
+      area: area.trim(),
+      address: address.trim(),
+
+      hubCode: hub.hubCode,
+
+      riderType: riderType.trim(),
+      vehicleType: vehicleType.trim(),
+      joiningDate,
+
+      image: image || "",
+
+      // New rider always starts as pending
+      status: "pending",
+
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // ==========================================
+    // Insert Rider
+    // ==========================================
+    const riderResult = await ridersCollection.insertOne(riderData);
+
+// ==========================================
+// Add Rider Info To Hub
+// ==========================================
+
+await hubsCollection.updateOne(
+  {
+    _id: hub._id,
+  },
+  {
+    $addToSet: {
+      assignedRiders: {
+        riderId: riderResult.insertedId,
+        name: riderData.name,
+        email: riderData.email,
+        phone: riderData.phone,
+      },
+    },
+  }
+);
+
+    // ==========================================
+    // Success Response
+    // ==========================================
+    res.status(201).json({
+      success: true,
+      message: "Rider created and assigned to hub successfully.",
+      rider: {
+        ...riderData,
+        _id: riderResult.insertedId,
+      },
+    });
+  } catch (error) {
+    console.error("Create rider error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create rider.",
+      error: error.message,
+    });
+  }
+});
+
+// ==========================================
+// GET ALL RIDERS
+// ==========================================
+app.get("/api/riders", async (req, res) => {
+  try {
+    const { status, hubCode } = req.query;
+
+    const query = {};
+
+    // Filter by status
+    if (status) {
+      query.status = status;
+    }
+
+    // Filter by hub code
+    if (hubCode) {
+      query.hubCode = hubCode.trim().toUpperCase();
+    }
+
+    const riders = await ridersCollection
+      .find(query)
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      count: riders.length,
+      data: riders,
+    });
+  } catch (error) {
+    console.error("Failed to fetch riders:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch riders.",
     });
   }
 });
