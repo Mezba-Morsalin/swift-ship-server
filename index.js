@@ -134,6 +134,147 @@ async function run() {
       }
     });
 
+
+// ==========================================
+// UPDATE SHIPMENT STATUS
+// ==========================================
+
+app.patch("/api/shipments/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    // ==========================================
+    // Validate Status
+    // ==========================================
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "Status is required.",
+      });
+    }
+
+    if (!["accepted", "cancelled"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid shipment status.",
+      });
+    }
+
+    // ==========================================
+    // Validate ObjectId
+    // ==========================================
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid shipment ID.",
+      });
+    }
+
+    // ==========================================
+    // Find Shipment
+    // ==========================================
+
+    const shipment = await shipmentCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!shipment) {
+      return res.status(404).json({
+        success: false,
+        message: "Shipment not found.",
+      });
+    }
+
+    // ==========================================
+    // Only Pending Shipment Can Be Updated
+    // ==========================================
+
+    if (shipment.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "Only pending shipments can be updated.",
+      });
+    }
+
+    // ==========================================
+    // Update Shipment Status
+    // ==========================================
+
+    const result = await shipmentCollection.updateOne(
+      {
+        _id: new ObjectId(id),
+      },
+      {
+        $set: {
+          status,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Shipment status was not updated.",
+      });
+    }
+
+    // ==========================================
+    // Update Hub Shipment Stats
+    // ==========================================
+
+    const hubStatsUpdate = {};
+
+    if (status === "accepted") {
+      hubStatsUpdate["shipmentStats.pending"] = -1;
+      hubStatsUpdate["shipmentStats.atHub"] = 1;
+    }
+
+    if (status === "cancelled") {
+      hubStatsUpdate["shipmentStats.pending"] = -1;
+    }
+
+    if (shipment.hubId && Object.keys(hubStatsUpdate).length > 0) {
+      await hubsCollection.updateOne(
+        {
+          _id: shipment.hubId,
+        },
+        {
+          $inc: hubStatsUpdate,
+        }
+      );
+    }
+
+    // ==========================================
+    // Get Updated Shipment
+    // ==========================================
+
+    const updatedShipment = await shipmentCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    // ==========================================
+    // Success Response
+    // ==========================================
+
+    res.status(200).json({
+      success: true,
+      message: `Shipment ${status} successfully.`,
+      shipment: updatedShipment,
+    });
+  } catch (error) {
+    console.error("Update shipment error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update shipment.",
+    });
+  }
+});
+
     app.get("/api/hubs", async (req, res) => {
   try {
     const hubs = await hubsCollection.find().toArray();
