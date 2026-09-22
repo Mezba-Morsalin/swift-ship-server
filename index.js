@@ -472,6 +472,73 @@ app.get("/api/riders", async (req, res) => {
   }
 });
 
+app.patch("/api/riders/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, userId } = req.body;
+
+    if (!status && !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Nothing to update.",
+      });
+    }
+
+    if (status && !["pending", "active", "suspended"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid rider status.",
+      });
+    }
+
+    const updateData = {
+      updatedAt: new Date(),
+    };
+
+    if (status) {
+      updateData.status = status;
+    }
+
+    if (userId) {
+      updateData.userId = userId;
+    }
+
+    const result = await ridersCollection.updateOne(
+      {
+        _id: new ObjectId(id),
+      },
+      {
+        $set: updateData,
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Rider not found.",
+      });
+    }
+
+    const updatedRider = await ridersCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Rider updated successfully.",
+      rider: updatedRider,
+    });
+  } catch (error) {
+    console.error("Update rider error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update rider.",
+      error: error.message,
+    });
+  }
+});
+
   } catch (error) {
     console.error("MongoDB connection failed:", error);
   }
