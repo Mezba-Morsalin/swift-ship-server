@@ -145,12 +145,12 @@ app.patch("/api/shipments/:id", async (req, res) => {
     const { status } = req.body;
 
     // ==========================================
-    // Validate Status
+    // Validate Action
     // ==========================================
     if (!status) {
       return res.status(400).json({
         success: false,
-        message: "Status is required.",
+        message: "Action is required.",
       });
     }
 
@@ -186,7 +186,7 @@ app.patch("/api/shipments/:id", async (req, res) => {
     }
 
     // ==========================================
-    // Only Pending Shipment Can Be Actioned
+    // Shipment Must Be Pending
     // ==========================================
     if (shipment.status !== "pending") {
       return res.status(400).json({
@@ -196,7 +196,19 @@ app.patch("/api/shipments/:id", async (req, res) => {
     }
 
     // ==========================================
-    // Add Action Without Changing Status
+    // Prevent Duplicate Action
+    // ==========================================
+    if (shipment.action?.type) {
+      return res.status(400).json({
+        success: false,
+        message: `Shipment has already been ${shipment.action.type}.`,
+      });
+    }
+
+    // ==========================================
+    // Add Action
+    // IMPORTANT:
+    // Shipment status will remain "pending"
     // ==========================================
     const result = await shipmentCollection.updateOne(
       {
@@ -218,34 +230,6 @@ app.patch("/api/shipments/:id", async (req, res) => {
         success: false,
         message: "Shipment action was not added.",
       });
-    }
-
-    // ==========================================
-    // Update Hub Shipment Stats
-    // ==========================================
-    const hubStatsUpdate = {};
-
-    if (status === "accepted") {
-      hubStatsUpdate["shipmentStats.pending"] = -1;
-      hubStatsUpdate["shipmentStats.atHub"] = 1;
-    }
-
-    if (status === "cancelled") {
-      hubStatsUpdate["shipmentStats.pending"] = -1;
-    }
-
-    if (
-      shipment.hubId &&
-      Object.keys(hubStatsUpdate).length > 0
-    ) {
-      await hubsCollection.updateOne(
-        {
-          _id: shipment.hubId,
-        },
-        {
-          $inc: hubStatsUpdate,
-        }
-      );
     }
 
     // ==========================================
@@ -273,11 +257,80 @@ app.patch("/api/shipments/:id", async (req, res) => {
   }
 });
 
-    app.get("/api/hubs", async (req, res) => {
+
+app.get("/api/hubs", async (req, res) => {
   try {
     const hubs = await hubsCollection.find().toArray();
 
-    res.status(200).json(hubs);
+    // Calculate shipment stats from shipments collection
+    const hubsWithStats = await Promise.all(
+      hubs.map(async (hub) => {
+        const shipmentStats = await shipmentCollection
+          .aggregate([
+            {
+              $match: {
+                hubId: hub._id,
+              },
+            },
+            {
+              $group: {
+                _id: null,
+
+                total: {
+                  $sum: 1,
+                },
+
+                pending: {
+                  $sum: {
+                    $cond: [{ $eq: ["$status", "pending"] }, 1, 0],
+                  },
+                },
+
+                atHub: {
+                  $sum: {
+                    $cond: [{ $eq: ["$status", "atHub"] }, 1, 0],
+                  },
+                },
+
+                readyRider: {
+                  $sum: {
+                    $cond: [{ $eq: ["$status", "readyRider"] }, 1, 0],
+                  },
+                },
+
+                outForDelivery: {
+                  $sum: {
+                    $cond: [{ $eq: ["$status", "outForDelivery"] }, 1, 0],
+                  },
+                },
+
+                delivered: {
+                  $sum: {
+                    $cond: [{ $eq: ["$status", "delivered"] }, 1, 0],
+                  },
+                },
+              },
+            },
+          ])
+          .toArray();
+
+        const stats = shipmentStats[0] || {
+          total: 0,
+          pending: 0,
+          atHub: 0,
+          readyRider: 0,
+          outForDelivery: 0,
+          delivered: 0,
+        };
+
+        return {
+          ...hub,
+          shipmentStats: stats,
+        };
+      })
+    );
+
+    res.status(200).json(hubsWithStats);
   } catch (error) {
     console.error("Failed to fetch hubs:", error);
 
@@ -288,9 +341,17 @@ app.patch("/api/shipments/:id", async (req, res) => {
   }
 });
 
+
 app.get("/api/hubs/:id", async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid hub ID",
+      });
+    }
 
     const hub = await hubsCollection.findOne({
       _id: new ObjectId(id),
@@ -303,7 +364,71 @@ app.get("/api/hubs/:id", async (req, res) => {
       });
     }
 
-    res.status(200).json(hub);
+    // Calculate shipment stats from shipments collection
+    const shipmentStats = await shipmentCollection
+      .aggregate([
+        {
+          $match: {
+            hubId: hub._id,
+          },
+        },
+        {
+          $group: {
+            _id: null,
+
+            total: {
+              $sum: 1,
+            },
+
+            pending: {
+              $sum: {
+                $cond: [{ $eq: ["$status", "pending"] }, 1, 0],
+              },
+            },
+
+            atHub: {
+              $sum: {
+                $cond: [{ $eq: ["$status", "atHub"] }, 1, 0],
+              },
+            },
+
+            readyRider: {
+              $sum: {
+                $cond: [{ $eq: ["$status", "readyRider"] }, 1, 0],
+              },
+            },
+
+            outForDelivery: {
+              $sum: {
+                $cond: [{ $eq: ["$status", "outForDelivery"] }, 1, 0],
+              },
+            },
+
+            delivered: {
+              $sum: {
+                $cond: [{ $eq: ["$status", "delivered"] }, 1, 0],
+              },
+            },
+          },
+        },
+      ])
+      .toArray();
+
+    const stats = shipmentStats[0] || {
+      total: 0,
+      pending: 0,
+      atHub: 0,
+      readyRider: 0,
+      outForDelivery: 0,
+      delivered: 0,
+    };
+
+    const hubWithStats = {
+      ...hub,
+      shipmentStats: stats,
+    };
+
+    res.status(200).json(hubWithStats);
   } catch (error) {
     console.error("Failed to fetch hub:", error);
 
@@ -314,9 +439,22 @@ app.get("/api/hubs/:id", async (req, res) => {
   }
 });
 
+
 app.post("/api/hubs", async (req, res) => {
   try {
-    const { hubCode, hubName, type, division, district, area, address, manager, maxStorage, operationalStatus, coverageZones,} = req.body;
+    const {
+      hubCode,
+      hubName,
+      type,
+      division,
+      district,
+      area,
+      address,
+      manager,
+      maxStorage,
+      operationalStatus,
+      coverageZones,
+    } = req.body;
 
     // Required field validation
     if (
@@ -370,7 +508,6 @@ app.post("/api/hubs", async (req, res) => {
       },
 
       maxStorage: Number(maxStorage),
-
       operationalStatus: operationalStatus.trim(),
 
       coverageZones: coverageZones
@@ -379,6 +516,8 @@ app.post("/api/hubs", async (req, res) => {
 
       assignedRiders: [],
 
+      // Initial stats only.
+      // Actual stats are calculated from shipments collection.
       shipmentStats: {
         total: 0,
         pending: 0,
@@ -397,7 +536,9 @@ app.post("/api/hubs", async (req, res) => {
     res.status(201).json({
       success: true,
       message: "Hub created successfully.",
+
       insertedId: result.insertedId,
+
       hub: {
         ...hubData,
         _id: result.insertedId,
