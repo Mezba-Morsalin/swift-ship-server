@@ -185,7 +185,40 @@ app.get("/api/shipments", async (req, res) => {
   }
 });
 
+app.get("/api/shipments/rider/:riderId", async (req, res) => {
+  try {
+    const { riderId } = req.params;
 
+    if (!ObjectId.isValid(riderId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid rider ID.",
+      });
+    }
+
+    const shipments = await shipmentCollection
+      .find({
+        riderId: new ObjectId(riderId),
+        assignmentStatus: "requested",
+        "action.type": "accepted",
+      })
+      .sort({ assignedAt: -1 })
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      count: shipments.length,
+      data: shipments,
+    });
+  } catch (error) {
+    console.error("Failed to fetch rider shipments:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch rider shipments.",
+    });
+  }
+});
 // ==========================================
 // ADMIN SHIPMENT ACTION
 // ACCEPT / CANCEL
