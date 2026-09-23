@@ -147,7 +147,6 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Validate Status
     // ==========================================
-
     if (!status) {
       return res.status(400).json({
         success: false,
@@ -158,14 +157,13 @@ app.patch("/api/shipments/:id", async (req, res) => {
     if (!["accepted", "cancelled"].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid shipment status.",
+        message: "Invalid shipment action.",
       });
     }
 
     // ==========================================
     // Validate ObjectId
     // ==========================================
-
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
@@ -176,7 +174,6 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Find Shipment
     // ==========================================
-
     const shipment = await shipmentCollection.findOne({
       _id: new ObjectId(id),
     });
@@ -189,27 +186,28 @@ app.patch("/api/shipments/:id", async (req, res) => {
     }
 
     // ==========================================
-    // Only Pending Shipment Can Be Updated
+    // Only Pending Shipment Can Be Actioned
     // ==========================================
-
     if (shipment.status !== "pending") {
       return res.status(400).json({
         success: false,
-        message: "Only pending shipments can be updated.",
+        message: "Only pending shipments can be actioned.",
       });
     }
 
     // ==========================================
-    // Update Shipment Status
+    // Add Action Without Changing Status
     // ==========================================
-
     const result = await shipmentCollection.updateOne(
       {
         _id: new ObjectId(id),
       },
       {
         $set: {
-          status,
+          action: {
+            type: status,
+            createdAt: new Date(),
+          },
           updatedAt: new Date(),
         },
       }
@@ -218,14 +216,13 @@ app.patch("/api/shipments/:id", async (req, res) => {
     if (result.modifiedCount === 0) {
       return res.status(400).json({
         success: false,
-        message: "Shipment status was not updated.",
+        message: "Shipment action was not added.",
       });
     }
 
     // ==========================================
     // Update Hub Shipment Stats
     // ==========================================
-
     const hubStatsUpdate = {};
 
     if (status === "accepted") {
@@ -237,7 +234,10 @@ app.patch("/api/shipments/:id", async (req, res) => {
       hubStatsUpdate["shipmentStats.pending"] = -1;
     }
 
-    if (shipment.hubId && Object.keys(hubStatsUpdate).length > 0) {
+    if (
+      shipment.hubId &&
+      Object.keys(hubStatsUpdate).length > 0
+    ) {
       await hubsCollection.updateOne(
         {
           _id: shipment.hubId,
@@ -251,7 +251,6 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Get Updated Shipment
     // ==========================================
-
     const updatedShipment = await shipmentCollection.findOne({
       _id: new ObjectId(id),
     });
@@ -259,18 +258,17 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Success Response
     // ==========================================
-
     res.status(200).json({
       success: true,
       message: `Shipment ${status} successfully.`,
       shipment: updatedShipment,
     });
   } catch (error) {
-    console.error("Update shipment error:", error);
+    console.error("Shipment action error:", error);
 
     res.status(500).json({
       success: false,
-      message: "Failed to update shipment.",
+      message: "Failed to update shipment action.",
     });
   }
 });
