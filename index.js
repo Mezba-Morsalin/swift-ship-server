@@ -50,11 +50,30 @@ async function run() {
       res.send("Swift Server Running Successfully");
     });
 
-    app.post("/api/shipments", async (req, res) => {
-  try {
-    const { recipientName, recipientPhone, destination, category, address, instructions, codAmount, weight, status, deliveryCharge,} = req.body;
 
-    // Find hub based on destination
+// ==========================================
+// CREATE SHIPMENT
+// ==========================================
+
+app.post("/api/shipments", async (req, res) => {
+  try {
+    const {
+      recipientName,
+      recipientPhone,
+      destination,
+      category,
+      address,
+      instructions,
+      codAmount,
+      weight,
+      status,
+      deliveryCharge,
+    } = req.body;
+
+    // ==========================================
+    // Find Hub Based On Destination
+    // ==========================================
+
     const hub = await hubsCollection.findOne({
       coverageZones: destination,
     });
@@ -66,35 +85,59 @@ async function run() {
       });
     }
 
+    // ==========================================
+    // Default Shipment Status
+    // ==========================================
+
     const shipmentStatus = status || "pending";
 
-    const shipmentData = { recipientName, recipientPhone, destination, category, address, instructions: instructions || "", codAmount: Number(codAmount) || 0, weight: Number(weight) || 0, deliveryCharge: Number(deliveryCharge) || 0, status: shipmentStatus, hubId: hub._id, hubCode: hub.hubCode, hubName: hub.hubName, createdAt: new Date(),
+    // ==========================================
+    // Shipment Data
+    // ==========================================
+
+    const shipmentData = {
+      recipientName,
+      recipientPhone,
+      destination,
+      category,
+      address,
+      instructions: instructions || "",
+
+      codAmount: Number(codAmount) || 0,
+      weight: Number(weight) || 0,
+      deliveryCharge: Number(deliveryCharge) || 0,
+
+      // Actual shipment status
+      status: shipmentStatus,
+
+      // Hub information
+      hubId: hub._id,
+      hubCode: hub.hubCode,
+      hubName: hub.hubName,
+
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
-    // Create shipment
+    // ==========================================
+    // Create Shipment
+    // ==========================================
+
     const result = await shipmentCollection.insertOne(shipmentData);
 
-    // Update hub shipment stats
-    await hubsCollection.updateOne(
-      { _id: hub._id },
-      {
-        $inc: {
-          "shipmentStats.total": 1,
-          "shipmentStats.pending": shipmentStatus === "pending" ? 1 : 0,
-          "shipmentStats.atHub": shipmentStatus === "atHub" ? 1 : 0,
-          "shipmentStats.readyRider":
-            shipmentStatus === "readyRider" ? 1 : 0,
-          "shipmentStats.outForDelivery":
-            shipmentStatus === "outForDelivery" ? 1 : 0,
-          "shipmentStats.delivered":
-            shipmentStatus === "delivered" ? 1 : 0,
-        },
-      }
-    );
+    // ==========================================
+    // IMPORTANT
+    // ==========================================
+    // Do NOT update hub shipmentStats here.
+    //
+    // Hub stats are calculated dynamically from
+    // shipmentCollection.
+    // ==========================================
 
     res.status(201).json({
       success: true,
       message: "Shipment created successfully",
+
       shipment: {
         ...shipmentData,
         _id: result.insertedId,
@@ -109,34 +152,43 @@ async function run() {
     });
   }
 });
-    app.get("/api/shipments", async (req, res) => {
-      try {
-        const { status } = req.query;
-
-        const query = status ? { status } : {};
-
-        const result = await shipmentCollection
-          .find(query)
-          .sort({ createdAt: -1 })
-          .toArray();
-
-        res.status(200).json({
-          success: true,
-          data: result,
-        });
-      } catch (error) {
-        console.error("Failed to fetch shipments:", error);
-
-        res.status(500).json({
-          success: false,
-          message: "Failed to fetch shipments",
-        });
-      }
-    });
 
 
 // ==========================================
-// UPDATE SHIPMENT STATUS
+// GET ALL SHIPMENTS
+// ==========================================
+
+app.get("/api/shipments", async (req, res) => {
+  try {
+    const { status } = req.query;
+
+    const query = status
+      ? { status }
+      : {};
+
+    const result = await shipmentCollection
+      .find(query)
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("Failed to fetch shipments:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch shipments",
+    });
+  }
+});
+
+
+// ==========================================
+// ADMIN SHIPMENT ACTION
+// ACCEPT / CANCEL
 // ==========================================
 
 app.patch("/api/shipments/:id", async (req, res) => {
@@ -147,6 +199,7 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Validate Action
     // ==========================================
+
     if (!status) {
       return res.status(400).json({
         success: false,
@@ -164,6 +217,7 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Validate ObjectId
     // ==========================================
+
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
@@ -174,6 +228,7 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Find Shipment
     // ==========================================
+
     const shipment = await shipmentCollection.findOne({
       _id: new ObjectId(id),
     });
@@ -188,6 +243,7 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Shipment Must Be Pending
     // ==========================================
+
     if (shipment.status !== "pending") {
       return res.status(400).json({
         success: false,
@@ -198,6 +254,7 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Prevent Duplicate Action
     // ==========================================
+
     if (shipment.action?.type) {
       return res.status(400).json({
         success: false,
@@ -206,10 +263,12 @@ app.patch("/api/shipments/:id", async (req, res) => {
     }
 
     // ==========================================
-    // Add Action
+    // Add Admin Action
+    //
     // IMPORTANT:
-    // Shipment status will remain "pending"
+    // Root shipment status remains "pending"
     // ==========================================
+
     const result = await shipmentCollection.updateOne(
       {
         _id: new ObjectId(id),
@@ -220,6 +279,7 @@ app.patch("/api/shipments/:id", async (req, res) => {
             type: status,
             createdAt: new Date(),
           },
+
           updatedAt: new Date(),
         },
       }
@@ -235,6 +295,7 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Get Updated Shipment
     // ==========================================
+
     const updatedShipment = await shipmentCollection.findOne({
       _id: new ObjectId(id),
     });
@@ -242,6 +303,7 @@ app.patch("/api/shipments/:id", async (req, res) => {
     // ==========================================
     // Success Response
     // ==========================================
+
     res.status(200).json({
       success: true,
       message: `Shipment ${status} successfully.`,
@@ -258,11 +320,19 @@ app.patch("/api/shipments/:id", async (req, res) => {
 });
 
 
+// ==========================================
+// GET ALL HUBS
+// WITH DYNAMIC SHIPMENT STATS
+// ==========================================
+
 app.get("/api/hubs", async (req, res) => {
   try {
     const hubs = await hubsCollection.find().toArray();
 
-    // Calculate shipment stats from shipments collection
+    // ==========================================
+    // Calculate Stats From Shipments Collection
+    // ==========================================
+
     const hubsWithStats = await Promise.all(
       hubs.map(async (hub) => {
         const shipmentStats = await shipmentCollection
@@ -270,8 +340,15 @@ app.get("/api/hubs", async (req, res) => {
             {
               $match: {
                 hubId: hub._id,
+
+                // Cancelled shipments do not belong
+                // to Hub shipment flow
+                "action.type": {
+                  $ne: "cancelled",
+                },
               },
             },
+
             {
               $group: {
                 _id: null,
@@ -282,31 +359,61 @@ app.get("/api/hubs", async (req, res) => {
 
                 pending: {
                   $sum: {
-                    $cond: [{ $eq: ["$status", "pending"] }, 1, 0],
+                    $cond: [
+                      {
+                        $eq: ["$status", "pending"],
+                      },
+                      1,
+                      0,
+                    ],
                   },
                 },
 
                 atHub: {
                   $sum: {
-                    $cond: [{ $eq: ["$status", "atHub"] }, 1, 0],
+                    $cond: [
+                      {
+                        $eq: ["$status", "atHub"],
+                      },
+                      1,
+                      0,
+                    ],
                   },
                 },
 
                 readyRider: {
                   $sum: {
-                    $cond: [{ $eq: ["$status", "readyRider"] }, 1, 0],
+                    $cond: [
+                      {
+                        $eq: ["$status", "readyRider"],
+                      },
+                      1,
+                      0,
+                    ],
                   },
                 },
 
                 outForDelivery: {
                   $sum: {
-                    $cond: [{ $eq: ["$status", "outForDelivery"] }, 1, 0],
+                    $cond: [
+                      {
+                        $eq: ["$status", "outForDelivery"],
+                      },
+                      1,
+                      0,
+                    ],
                   },
                 },
 
                 delivered: {
                   $sum: {
-                    $cond: [{ $eq: ["$status", "delivered"] }, 1, 0],
+                    $cond: [
+                      {
+                        $eq: ["$status", "delivered"],
+                      },
+                      1,
+                      0,
+                    ],
                   },
                 },
               },
@@ -342,9 +449,18 @@ app.get("/api/hubs", async (req, res) => {
 });
 
 
+// ==========================================
+// GET SINGLE HUB
+// WITH DYNAMIC SHIPMENT STATS
+// ==========================================
+
 app.get("/api/hubs/:id", async (req, res) => {
   try {
     const { id } = req.params;
+
+    // ==========================================
+    // Validate ObjectId
+    // ==========================================
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -352,6 +468,10 @@ app.get("/api/hubs/:id", async (req, res) => {
         message: "Invalid hub ID",
       });
     }
+
+    // ==========================================
+    // Find Hub
+    // ==========================================
 
     const hub = await hubsCollection.findOne({
       _id: new ObjectId(id),
@@ -364,14 +484,23 @@ app.get("/api/hubs/:id", async (req, res) => {
       });
     }
 
-    // Calculate shipment stats from shipments collection
+    // ==========================================
+    // Calculate Shipment Stats
+    // ==========================================
+
     const shipmentStats = await shipmentCollection
       .aggregate([
         {
           $match: {
             hubId: hub._id,
+
+            // Cancelled shipment excluded
+            "action.type": {
+              $ne: "cancelled",
+            },
           },
         },
+
         {
           $group: {
             _id: null,
@@ -382,31 +511,61 @@ app.get("/api/hubs/:id", async (req, res) => {
 
             pending: {
               $sum: {
-                $cond: [{ $eq: ["$status", "pending"] }, 1, 0],
+                $cond: [
+                  {
+                    $eq: ["$status", "pending"],
+                  },
+                  1,
+                  0,
+                ],
               },
             },
 
             atHub: {
               $sum: {
-                $cond: [{ $eq: ["$status", "atHub"] }, 1, 0],
+                $cond: [
+                  {
+                    $eq: ["$status", "atHub"],
+                  },
+                  1,
+                  0,
+                ],
               },
             },
 
             readyRider: {
               $sum: {
-                $cond: [{ $eq: ["$status", "readyRider"] }, 1, 0],
+                $cond: [
+                  {
+                    $eq: ["$status", "readyRider"],
+                  },
+                  1,
+                  0,
+                ],
               },
             },
 
             outForDelivery: {
               $sum: {
-                $cond: [{ $eq: ["$status", "outForDelivery"] }, 1, 0],
+                $cond: [
+                  {
+                    $eq: ["$status", "outForDelivery"],
+                  },
+                  1,
+                  0,
+                ],
               },
             },
 
             delivered: {
               $sum: {
-                $cond: [{ $eq: ["$status", "delivered"] }, 1, 0],
+                $cond: [
+                  {
+                    $eq: ["$status", "delivered"],
+                  },
+                  1,
+                  0,
+                ],
               },
             },
           },
@@ -423,6 +582,10 @@ app.get("/api/hubs/:id", async (req, res) => {
       delivered: 0,
     };
 
+    // ==========================================
+    // Response
+    // ==========================================
+
     const hubWithStats = {
       ...hub,
       shipmentStats: stats,
@@ -435,6 +598,369 @@ app.get("/api/hubs/:id", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch hub",
+    });
+  }
+});
+
+
+// ==========================================
+// GET HUB SHIPMENTS
+// FOR HUB MANAGE SHIPMENTS PAGE
+// ==========================================
+
+app.get("/api/hubs/:id/shipments", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // ==========================================
+    // Validate Hub ID
+    // ==========================================
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid hub ID",
+      });
+    }
+
+    const hubId = new ObjectId(id);
+
+    // ==========================================
+    // Check Hub
+    // ==========================================
+
+    const hub = await hubsCollection.findOne({
+      _id: hubId,
+    });
+
+    if (!hub) {
+      return res.status(404).json({
+        success: false,
+        message: "Hub not found",
+      });
+    }
+
+    // ==========================================
+    // Find Hub Shipments
+    //
+    // Cancelled shipments are excluded
+    // ==========================================
+
+    const shipments = await shipmentCollection
+      .find({
+        hubId: hubId,
+
+        "action.type": {
+          $ne: "cancelled",
+        },
+      })
+      .sort({
+        createdAt: -1,
+      })
+      .toArray();
+
+    // ==========================================
+    // Response
+    // ==========================================
+
+    res.status(200).json({
+      success: true,
+
+      hub: {
+        _id: hub._id,
+        hubCode: hub.hubCode,
+        hubName: hub.hubName,
+      },
+
+      data: shipments,
+    });
+  } catch (error) {
+    console.error("Failed to fetch hub shipments:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch hub shipments",
+    });
+  }
+});
+
+
+// ==========================================
+// CREATE HUB
+// ==========================================
+
+app.post("/api/hubs", async (req, res) => {
+  try {
+    const {
+      hubCode,
+      hubName,
+      type,
+      division,
+      district,
+      area,
+      address,
+      manager,
+      maxStorage,
+      operationalStatus,
+      coverageZones,
+    } = req.body;
+
+    // ==========================================
+    // Required Field Validation
+    // ==========================================
+
+    if (
+      !hubCode ||
+      !hubName ||
+      !type ||
+      !division ||
+      !district ||
+      !area ||
+      !address ||
+      !manager?.name ||
+      !manager?.designation ||
+      !manager?.phone ||
+      !manager?.email ||
+      maxStorage === undefined ||
+      !operationalStatus ||
+      !Array.isArray(coverageZones)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide all required hub information.",
+      });
+    }
+
+    // ==========================================
+    // Check Duplicate Hub Code
+    // ==========================================
+
+    const existingHub = await hubsCollection.findOne({
+      hubCode: hubCode.trim().toUpperCase(),
+    });
+
+    if (existingHub) {
+      return res.status(409).json({
+        success: false,
+        message: "A hub with this hub code already exists.",
+      });
+    }
+
+    // ==========================================
+    // Hub Data
+    // ==========================================
+
+    const hubData = {
+      hubCode: hubCode.trim().toUpperCase(),
+
+      hubName: hubName.trim(),
+
+      type: type.trim(),
+
+      division: division.trim(),
+
+      district: district.trim(),
+
+      area: area.trim(),
+
+      address: address.trim(),
+
+      manager: {
+        name: manager.name.trim(),
+
+        designation: manager.designation.trim(),
+
+        phone: manager.phone.trim(),
+
+        email: manager.email.trim().toLowerCase(),
+      },
+
+      maxStorage: Number(maxStorage),
+
+      operationalStatus: operationalStatus.trim(),
+
+      coverageZones: coverageZones
+        .map((zone) => zone.trim())
+        .filter(Boolean),
+
+      assignedRiders: [],
+
+      // Initial value only.
+      // Actual stats are calculated dynamically.
+      shipmentStats: {
+        total: 0,
+        pending: 0,
+        atHub: 0,
+        readyRider: 0,
+        outForDelivery: 0,
+        delivered: 0,
+      },
+
+      createdAt: new Date(),
+
+      updatedAt: new Date(),
+    };
+
+    // ==========================================
+    // Insert Hub
+    // ==========================================
+
+    const result = await hubsCollection.insertOne(hubData);
+
+    // ==========================================
+    // Response
+    // ==========================================
+
+    res.status(201).json({
+      success: true,
+
+      message: "Hub created successfully.",
+
+      insertedId: result.insertedId,
+
+      hub: {
+        ...hubData,
+        _id: result.insertedId,
+      },
+    });
+  } catch (error) {
+    console.error("Create hub error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create hub.",
+      error: error.message,
+    });
+  }
+});
+
+
+app.patch("/api/shipments/:id/assign-rider", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { riderId, riderName } = req.body;
+
+    if (!riderId || !riderName) {
+      return res.status(400).json({
+        success: false,
+        message: "Rider information is required.",
+      });
+    }
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid shipment ID.",
+      });
+    }
+
+    if (!ObjectId.isValid(riderId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid rider ID.",
+      });
+    }
+
+    const shipment = await shipmentCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!shipment) {
+      return res.status(404).json({
+        success: false,
+        message: "Shipment not found.",
+      });
+    }
+
+    // Admin must accept the shipment first
+    if (shipment.action?.type !== "accepted") {
+      return res.status(400).json({
+        success: false,
+        message: "Only accepted shipments can be assigned to a rider.",
+      });
+    }
+
+    // Shipment must still be pending
+    if (shipment.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "This shipment is no longer available for rider assignment.",
+      });
+    }
+
+    // Prevent duplicate rider request
+    if (shipment.assignmentStatus === "requested") {
+      return res.status(400).json({
+        success: false,
+        message: "A rider request has already been sent for this shipment.",
+      });
+    }
+
+    // Find rider
+    const rider = await ridersCollection.findOne({
+      _id: new ObjectId(riderId),
+    });
+
+    if (!rider) {
+      return res.status(404).json({
+        success: false,
+        message: "Rider not found.",
+      });
+    }
+
+    // Rider must be active
+    if (rider.status?.toLowerCase() !== "active") {
+      return res.status(400).json({
+        success: false,
+        message: "Only active riders can be assigned.",
+      });
+    }
+
+    // Rider and shipment must belong to same hub
+    if (rider.hubCode !== shipment.hubCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Rider does not belong to this shipment's hub.",
+      });
+    }
+
+    const result = await shipmentCollection.updateOne(
+      {
+        _id: new ObjectId(id),
+      },
+      {
+        $set: {
+          riderId: new ObjectId(riderId),
+          riderName: rider.name,
+          assignmentStatus: "requested",
+          assignedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Rider assignment request was not added.",
+      });
+    }
+
+    const updatedShipment = await shipmentCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Request sent to ${rider.name}.`,
+      shipment: updatedShipment,
+    });
+  } catch (error) {
+    console.error("Assign rider error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to assign rider.",
     });
   }
 });
