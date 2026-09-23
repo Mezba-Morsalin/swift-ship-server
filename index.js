@@ -199,8 +199,10 @@ app.get("/api/shipments/rider/:riderId", async (req, res) => {
     const shipments = await shipmentCollection
       .find({
         riderId: new ObjectId(riderId),
-        assignmentStatus: "requested",
         "action.type": "accepted",
+        assignmentStatus: {
+          $in: ["requested", "accepted"],
+        },
       })
       .sort({ assignedAt: -1 })
       .toArray();
@@ -211,7 +213,10 @@ app.get("/api/shipments/rider/:riderId", async (req, res) => {
       data: shipments,
     });
   } catch (error) {
-    console.error("Failed to fetch rider shipments:", error);
+    console.error(
+      "Failed to fetch rider shipments:",
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -219,6 +224,183 @@ app.get("/api/shipments/rider/:riderId", async (req, res) => {
     });
   }
 });
+
+app.patch("/api/shipments/:id/rider-action",
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { action } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid shipment ID.",
+        });
+      }
+
+      if (!["accepted", "rejected", "delivered"].includes(action)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid rider action.",
+        });
+      }
+
+      const shipment = await shipmentCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!shipment) {
+        return res.status(404).json({
+          success: false,
+          message: "Shipment not found.",
+        });
+      }
+
+      // -----------------------------------------
+      // ACCEPT SHIPMENT
+      // -----------------------------------------
+
+      if (action === "accepted") {
+        if (shipment.assignmentStatus !== "requested") {
+          return res.status(400).json({
+            success: false,
+            message:
+              "This shipment is not waiting for rider acceptance.",
+          });
+        }
+
+        const result =
+          await shipmentCollection.updateOne(
+            {
+              _id: new ObjectId(id),
+              assignmentStatus: "requested",
+            },
+            {
+              $set: {
+                assignmentStatus: "accepted",
+                status: "in_transit",
+                updatedAt: new Date(),
+              },
+            }
+          );
+
+        if (result.modifiedCount === 0) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Shipment could not be accepted.",
+          });
+        }
+      }
+
+      // -----------------------------------------
+      // REJECT SHIPMENT
+      // -----------------------------------------
+
+      if (action === "rejected") {
+        if (shipment.assignmentStatus !== "requested") {
+          return res.status(400).json({
+            success: false,
+            message:
+              "This shipment cannot be rejected.",
+          });
+        }
+
+        const result =
+          await shipmentCollection.updateOne(
+            {
+              _id: new ObjectId(id),
+              assignmentStatus: "requested",
+            },
+            {
+              $set: {
+                assignmentStatus: "rejected",
+                riderId: null,
+                riderName: null,
+                assignedAt: null,
+                updatedAt: new Date(),
+              },
+            }
+          );
+
+        if (result.modifiedCount === 0) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Shipment could not be rejected.",
+          });
+        }
+      }
+
+      // -----------------------------------------
+      // DELIVER SHIPMENT
+      // -----------------------------------------
+
+      if (action === "delivered") {
+        if (
+          shipment.assignmentStatus !== "accepted" &&
+          shipment.status !== "in_transit"
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Only in-transit shipments can be delivered.",
+          });
+        }
+
+        const result =
+          await shipmentCollection.updateOne(
+            {
+              _id: new ObjectId(id),
+            },
+            {
+              $set: {
+                status: "delivered",
+                assignmentStatus: "completed",
+                deliveredAt: new Date(),
+                updatedAt: new Date(),
+              },
+            }
+          );
+
+        if (result.modifiedCount === 0) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Shipment could not be marked as delivered.",
+          });
+        }
+      }
+
+      const updatedShipment =
+        await shipmentCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+      return res.status(200).json({
+        success: true,
+        message:
+          action === "accepted"
+            ? "Shipment accepted successfully."
+            : action === "rejected"
+            ? "Shipment request rejected."
+            : "Shipment marked as delivered.",
+        shipment: updatedShipment,
+      });
+    } catch (error) {
+      console.error(
+        "Rider shipment action error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to update shipment.",
+      });
+    }
+  }
+);
 // ==========================================
 // ADMIN SHIPMENT ACTION
 // ACCEPT / CANCEL
