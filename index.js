@@ -30,9 +30,9 @@ const client = new MongoClient(uri, {
   },
 });
 
-// ==========================================
+
 // RUN SERVER
-// ==========================================
+
 
 async function run() {
   try {
@@ -51,9 +51,9 @@ async function run() {
     });
 
 
-// ==========================================
+
 // CREATE SHIPMENT
-// ==========================================
+
 
 app.post("/api/shipments", async (req, res) => {
   try {
@@ -70,9 +70,9 @@ app.post("/api/shipments", async (req, res) => {
       deliveryCharge,
     } = req.body;
 
-    // ==========================================
+    // 
     // Find Hub Based On Destination
-    // ==========================================
+    // 
 
     const hub = await hubsCollection.findOne({
       coverageZones: destination,
@@ -85,15 +85,15 @@ app.post("/api/shipments", async (req, res) => {
       });
     }
 
-    // ==========================================
+    // 
     // Default Shipment Status
-    // ==========================================
+    // 
 
     const shipmentStatus = status || "pending";
 
-    // ==========================================
+    // 
     // Shipment Data
-    // ==========================================
+    // 
 
     const shipmentData = {
       recipientName,
@@ -119,20 +119,13 @@ app.post("/api/shipments", async (req, res) => {
       updatedAt: new Date(),
     };
 
-    // ==========================================
+    // 
     // Create Shipment
-    // ==========================================
+    // 
 
     const result = await shipmentCollection.insertOne(shipmentData);
 
-    // ==========================================
-    // IMPORTANT
-    // ==========================================
-    // Do NOT update hub shipmentStats here.
-    //
-    // Hub stats are calculated dynamically from
-    // shipmentCollection.
-    // ==========================================
+
 
     res.status(201).json({
       success: true,
@@ -154,9 +147,9 @@ app.post("/api/shipments", async (req, res) => {
 });
 
 
-// ==========================================
+// 
 // GET ALL SHIPMENTS
-// ==========================================
+// 
 
 app.get("/api/shipments", async (req, res) => {
   try {
@@ -256,9 +249,9 @@ app.patch("/api/shipments/:id/rider-action",
         });
       }
 
-      // -----------------------------------------
+      // 
       // ACCEPT SHIPMENT
-      // -----------------------------------------
+      // 
 
       if (action === "accepted") {
         if (shipment.assignmentStatus !== "requested") {
@@ -293,9 +286,9 @@ app.patch("/api/shipments/:id/rider-action",
         }
       }
 
-      // -----------------------------------------
+      // 
       // REJECT SHIPMENT
-      // -----------------------------------------
+      // 
 
       if (action === "rejected") {
         if (shipment.assignmentStatus !== "requested") {
@@ -332,9 +325,9 @@ app.patch("/api/shipments/:id/rider-action",
         }
       }
 
-      // -----------------------------------------
+      // 
       // DELIVER SHIPMENT
-      // -----------------------------------------
+      // 
 
       if (action === "delivered") {
         if (
@@ -401,19 +394,18 @@ app.patch("/api/shipments/:id/rider-action",
     }
   }
 );
-// ==========================================
+
 // ADMIN SHIPMENT ACTION
 // ACCEPT / CANCEL
-// ==========================================
 
 app.patch("/api/shipments/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    // ==========================================
+    // 
     // Validate Action
-    // ==========================================
+    // 
 
     if (!status) {
       return res.status(400).json({
@@ -429,9 +421,9 @@ app.patch("/api/shipments/:id", async (req, res) => {
       });
     }
 
-    // ==========================================
+    // 
     // Validate ObjectId
-    // ==========================================
+    // 
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -440,9 +432,9 @@ app.patch("/api/shipments/:id", async (req, res) => {
       });
     }
 
-    // ==========================================
+    // 
     // Find Shipment
-    // ==========================================
+    // 
 
     const shipment = await shipmentCollection.findOne({
       _id: new ObjectId(id),
@@ -455,9 +447,9 @@ app.patch("/api/shipments/:id", async (req, res) => {
       });
     }
 
-    // ==========================================
+    // 
     // Shipment Must Be Pending
-    // ==========================================
+    // 
 
     if (shipment.status !== "pending") {
       return res.status(400).json({
@@ -466,9 +458,9 @@ app.patch("/api/shipments/:id", async (req, res) => {
       });
     }
 
-    // ==========================================
+    // 
     // Prevent Duplicate Action
-    // ==========================================
+    // 
 
     if (shipment.action?.type) {
       return res.status(400).json({
@@ -477,12 +469,11 @@ app.patch("/api/shipments/:id", async (req, res) => {
       });
     }
 
-    // ==========================================
-    // Add Admin Action
     //
+    // Add Admin Action
     // IMPORTANT:
     // Root shipment status remains "pending"
-    // ==========================================
+    // 
 
     const result = await shipmentCollection.updateOne(
       {
@@ -507,17 +498,13 @@ app.patch("/api/shipments/:id", async (req, res) => {
       });
     }
 
-    // ==========================================
     // Get Updated Shipment
-    // ==========================================
 
     const updatedShipment = await shipmentCollection.findOne({
       _id: new ObjectId(id),
     });
 
-    // ==========================================
     // Success Response
-    // ==========================================
 
     res.status(200).json({
       success: true,
@@ -535,10 +522,8 @@ app.patch("/api/shipments/:id", async (req, res) => {
 });
 
 
-// ==========================================
 // GET ALL HUBS
 // WITH DYNAMIC SHIPMENT STATS
-// ==========================================
 
 app.get("/api/hubs", async (req, res) => {
   try {
@@ -664,18 +649,18 @@ app.get("/api/hubs", async (req, res) => {
 });
 
 
-// ==========================================
+// 
 // GET SINGLE HUB
 // WITH DYNAMIC SHIPMENT STATS
-// ==========================================
+// 
 
 app.get("/api/hubs/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    // ==========================================
+
     // Validate ObjectId
-    // ==========================================
+
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -683,10 +668,8 @@ app.get("/api/hubs/:id", async (req, res) => {
         message: "Invalid hub ID",
       });
     }
-
-    // ==========================================
     // Find Hub
-    // ==========================================
+
 
     const hub = await hubsCollection.findOne({
       _id: new ObjectId(id),
@@ -818,18 +801,18 @@ app.get("/api/hubs/:id", async (req, res) => {
 });
 
 
-// ==========================================
+
 // GET HUB SHIPMENTS
 // FOR HUB MANAGE SHIPMENTS PAGE
-// ==========================================
+
 
 app.get("/api/hubs/:id/shipments", async (req, res) => {
   try {
     const { id } = req.params;
 
-    // ==========================================
+
     // Validate Hub ID
-    // ==========================================
+
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -840,9 +823,8 @@ app.get("/api/hubs/:id/shipments", async (req, res) => {
 
     const hubId = new ObjectId(id);
 
-    // ==========================================
     // Check Hub
-    // ==========================================
+
 
     const hub = await hubsCollection.findOne({
       _id: hubId,
@@ -855,11 +837,11 @@ app.get("/api/hubs/:id/shipments", async (req, res) => {
       });
     }
 
-    // ==========================================
+
     // Find Hub Shipments
     //
     // Cancelled shipments are excluded
-    // ==========================================
+
 
     const shipments = await shipmentCollection
       .find({
@@ -874,9 +856,9 @@ app.get("/api/hubs/:id/shipments", async (req, res) => {
       })
       .toArray();
 
-    // ==========================================
+
     // Response
-    // ==========================================
+
 
     res.status(200).json({
       success: true,
@@ -900,9 +882,8 @@ app.get("/api/hubs/:id/shipments", async (req, res) => {
 });
 
 
-// ==========================================
 // CREATE HUB
-// ==========================================
+
 
 app.post("/api/hubs", async (req, res) => {
   try {
@@ -920,9 +901,9 @@ app.post("/api/hubs", async (req, res) => {
       coverageZones,
     } = req.body;
 
-    // ==========================================
+
     // Required Field Validation
-    // ==========================================
+
 
     if (
       !hubCode ||
@@ -946,9 +927,9 @@ app.post("/api/hubs", async (req, res) => {
       });
     }
 
-    // ==========================================
+
     // Check Duplicate Hub Code
-    // ==========================================
+
 
     const existingHub = await hubsCollection.findOne({
       hubCode: hubCode.trim().toUpperCase(),
@@ -961,9 +942,9 @@ app.post("/api/hubs", async (req, res) => {
       });
     }
 
-    // ==========================================
+
     // Hub Data
-    // ==========================================
+
 
     const hubData = {
       hubCode: hubCode.trim().toUpperCase(),
@@ -1016,15 +997,15 @@ app.post("/api/hubs", async (req, res) => {
       updatedAt: new Date(),
     };
 
-    // ==========================================
+
     // Insert Hub
-    // ==========================================
+
 
     const result = await hubsCollection.insertOne(hubData);
 
-    // ==========================================
+
     // Response
-    // ==========================================
+
 
     res.status(201).json({
       success: true,
@@ -1180,7 +1161,6 @@ app.patch("/api/shipments/:id/assign-rider", async (req, res) => {
   }
 });
 
-
 app.post("/api/hubs", async (req, res) => {
   try {
     const {
@@ -1296,16 +1276,16 @@ app.post("/api/hubs", async (req, res) => {
   }
 });
 
-// ==========================================
+
 // CREATE RIDER
-// ==========================================
+
 app.post("/api/riders", async (req, res) => {
   try {
     const { name, email, phone, nid, division, district, area, address, hubCode, riderType, vehicleType, joiningDate, image,} = req.body;
 
-    // ==========================================
+
     // Required Field Validation
-    // ==========================================
+
     if (
       !name ||
       !email ||
@@ -1326,9 +1306,9 @@ app.post("/api/riders", async (req, res) => {
       });
     }
 
-    // ==========================================
+
     // Check Duplicate Email
-    // ==========================================
+
     const existingEmail = await ridersCollection.findOne({
       email: email.trim().toLowerCase(),
     });
@@ -1340,9 +1320,8 @@ app.post("/api/riders", async (req, res) => {
       });
     }
 
-    // ==========================================
     // Check Duplicate Phone
-    // ==========================================
+
     const existingPhone = await ridersCollection.findOne({
       phone: phone.trim(),
     });
@@ -1354,9 +1333,9 @@ app.post("/api/riders", async (req, res) => {
       });
     }
 
-    // ==========================================
+
     // Find Hub By Hub Code
-    // ==========================================
+
     const hub = await hubsCollection.findOne({
       hubCode: hubCode.trim().toUpperCase(),
     });
@@ -1368,9 +1347,9 @@ app.post("/api/riders", async (req, res) => {
       });
     }
 
-    // ==========================================
+
     // Check Hub Status
-    // ==========================================
+
     if (hub.operationalStatus !== "active") {
       return res.status(400).json({
         success: false,
@@ -1378,9 +1357,9 @@ app.post("/api/riders", async (req, res) => {
       });
     }
 
-    // ==========================================
+
     // Rider Data
-    // ==========================================
+
     const riderData = {
       name: name.trim(),
       email: email.trim().toLowerCase(),
@@ -1407,14 +1386,14 @@ app.post("/api/riders", async (req, res) => {
       updatedAt: new Date(),
     };
 
-    // ==========================================
+
     // Insert Rider
-    // ==========================================
+
     const riderResult = await ridersCollection.insertOne(riderData);
 
-// ==========================================
+
 // Add Rider Info To Hub
-// ==========================================
+
 
 await hubsCollection.updateOne(
   {
@@ -1432,9 +1411,9 @@ await hubsCollection.updateOne(
   }
 );
 
-    // ==========================================
+
     // Success Response
-    // ==========================================
+
     res.status(201).json({
       success: true,
       message: "Rider created and assigned to hub successfully.",
@@ -1454,9 +1433,8 @@ await hubsCollection.updateOne(
   }
 });
 
-// ==========================================
 // GET ALL RIDERS
-// ==========================================
+
 app.get("/api/riders", async (req, res) => {
   try {
     const { status, hubCode } = req.query;
